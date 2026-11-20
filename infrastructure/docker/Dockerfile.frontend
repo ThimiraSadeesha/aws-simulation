@@ -1,0 +1,46 @@
+# syntax=docker/dockerfile:1
+# CloudSim Console (Next.js standalone). Build context = repository root:
+#   docker build -f infrastructure/docker/Dockerfile.frontend -t cloudsim-frontend .
+#
+# Runtime configuration (read when the server handles requests – no rebuild needed):
+#   BACKEND_INTERNAL_URL  Go backend base URL used by the same-origin proxy for /api/* and /healthz,
+#                         including WebSocket upgrades (default http://backend:8080).
+#   NEXT_PUBLIC_WS_URL    Optional. Browser-facing backend origin for WebSockets (e.g. ws://localhost:8080)
+#                         when the console server cannot proxy WS upgrades. Served at runtime by /runtime-config.
+
+############################ deps ############################
+FROM node:22-alpine AS deps
+WORKDIR /app
+RUN apk add --no-cache libc6-compat
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+
+############################ build ###########################
+FROM node:22-alpine AS build
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY --from=deps /app/node_modules ./node_modules
+COPY frontend/ ./
+# Only used for the static fallback rewrites in next.config.ts; proxy.ts reads the runtime value.
+ARG BACKEND_INTERNAL_URL=http://backend:8080
+ENV BACKEND_INTERNAL_URL=${BACKEND_INTERNAL_URL}
+# `prebuild` copies Monaco into public/monaco so the editor works offline.
+RUN npm run build
+
+############################ runtime #########################
+FROM node:22-alpine AS runtime
+WORKDIR /app
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0 \
+    BACKEND_INTERNAL_URL=http://backend:8080
+RUN addgroup -S -g 1001 nodejs && adduser -S -u 1001 -G nodejs nextjs
+COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=build --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=build --chown=nextjs:nodejs /app/public ./public
+USER nextjs
+EXPOSE 3000
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
+  CMD wget -q -O /dev/null http://127.0.0.1:3000/console-health || exit 1
+CMD ["node", "server.js"]

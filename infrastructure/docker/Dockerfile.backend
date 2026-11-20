@@ -1,0 +1,34 @@
+# CloudSim Go backend. Build context: repository root.
+# syntax=docker/dockerfile:1
+FROM golang:1.27-alpine AS build
+WORKDIR /src
+ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS=-trimpath
+# Dependency layer (cached until go.mod/go.sum change). The backend imports the CLI command
+# package for the in-browser terminal, so both modules are part of the workspace.
+COPY go.work ./
+COPY backend/go.mod backend/go.sum ./backend/
+COPY cli/go.mod ./cli/
+COPY cli/go.su[m] ./cli/
+RUN --mount=type=cache,target=/go/pkg/mod cd backend && go mod download
+COPY backend ./backend
+COPY cli ./cli
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    cd backend && go build -ldflags="-s -w" -o /out/server ./cmd/server
+# Pre-create writable data directories owned by the distroless nonroot user (65532).
+RUN mkdir -p /out/data/objects /out/data/backups && chown -R 65532:65532 /out/data
+
+FROM gcr.io/distroless/static-debian12:nonroot
+WORKDIR /app
+COPY --from=build /out/server /app/server
+COPY --from=build --chown=65532:65532 /out/data /data
+COPY training-labs /app/training-labs
+ENV BACKEND_ADDR=:8080 \
+    DATABASE_PATH=/data/cloudsim.db \
+    OBJECT_STORAGE_DIR=/data/objects \
+    BACKUP_DIR=/data/backups \
+    LABS_DIR=/app/training-labs
+USER 65532:65532
+EXPOSE 8080
+VOLUME ["/data"]
+HEALTHCHECK --interval=10s --timeout=4s --start-period=10s --retries=3 CMD ["/app/server", "healthcheck"]
+ENTRYPOINT ["/app/server"]

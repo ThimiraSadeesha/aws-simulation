@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="db-forest-configuration">
+    <data version="2">.
+	1:0:f8970ef4-99fa-400d-b02c-34669f8ae8ba:maxim-maria
+	4:0:d0394f3e-42d0-44ea-9baf-9ac030cb1da2:maxim-mysql
+	7:0:9f282bf2-9614-4d6b-bf29-7877c3206099:RDS
+	9:0:8f168a84-c074-4af5-a3a3-7bc1fa52d7a6:maxim-postgress
+	12:0:57644287-4391-4b24-9481-08dc3c2b3912:vps
+	----------------------------------------
+	2:1:35e92142-3723-414d-82ab-d35b5cefc321
+	3:1:2914057c-ae45-4469-9fdc-0870d80d5719
+	5:4:bdb83036-da18-42e3-9fd0-b4c466bbdf97
+	6:4:1b6613c7-f00a-44fa-ae07-9452d2c385d1
+	8:7:f6124a7a-ee1d-4ced-8fed-86b52bf4ec5b
+	10:9:6a72efb8-6b81-4bad-aad9-d83517261d4d
+	11:9:1d7bb89b-1472-422d-9b22-b963db15f79b
+	13:12:7c75ae2a-c9b9-4ddd-bc33-c9c9cea79f98
+		.</data>
+  </component>
+</project>

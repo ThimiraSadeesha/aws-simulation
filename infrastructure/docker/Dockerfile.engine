@@ -1,0 +1,49 @@
+# CloudSim simulation engine (Rust).
+# Build from the repository root:
+#   docker build -f infrastructure/docker/Dockerfile.engine -t cloudsim-engine .
+
+# ---- builder -----------------------------------------------------------------
+FROM rust:1.85-bookworm AS builder
+WORKDIR /build
+
+# Dependency-caching layer: build all dependencies against stub sources so that
+# source-only changes do not re-download or re-compile the dependency graph.
+COPY engine/Cargo.toml engine/Cargo.lock ./
+RUN mkdir -p src benches \
+ && echo 'fn main() {}' > src/main.rs \
+ && echo '' > src/lib.rs \
+ && for b in transitions events reachability lb; do echo 'fn main() {}' > benches/$b.rs; done \
+ && cargo build --release --locked \
+ && rm -rf src benches
+
+COPY engine/src ./src
+COPY engine/benches ./benches
+# Make sure cargo notices the real sources are newer than the stub build.
+RUN touch src/main.rs src/lib.rs \
+ && cargo build --release --locked --bin cloudsim-engine \
+ && cp target/release/cloudsim-engine /cloudsim-engine
+
+# ---- runtime -----------------------------------------------------------------
+FROM debian:bookworm-slim AS runtime
+
+RUN groupadd --system --gid 10001 cloudsim \
+ && useradd --system --uid 10001 --gid cloudsim --no-create-home --shell /usr/sbin/nologin cloudsim
+
+COPY --from=builder /cloudsim-engine /usr/local/bin/cloudsim-engine
+
+ENV ENGINE_ADDR=0.0.0.0:7070 \
+    ENGINE_TIME_SCALE=1.0 \
+    ENGINE_SEED=42 \
+    ENGINE_TICK_MS=1000 \
+    ENGINE_EVENT_BUFFER=10000 \
+    RUST_LOG=info
+
+USER 10001:10001
+EXPOSE 7070
+
+# The image has no curl/wget; the binary has a built-in probe mode.
+HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
+    CMD ["/usr/local/bin/cloudsim-engine", "--healthcheck"]
+
+# ENGINE_TOKEN must be provided at runtime; the engine refuses to start without it.
+ENTRYPOINT ["/usr/local/bin/cloudsim-engine"]

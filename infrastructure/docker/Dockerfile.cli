@@ -1,0 +1,20 @@
+# cloudsim CLI (talks only to a CloudSim simulator endpoint). Build context: repository root.
+# syntax=docker/dockerfile:1
+FROM golang:1.27-alpine AS build
+WORKDIR /src
+ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS=-trimpath GOWORK=off
+# The cli module has no dependency on the backend; it is built standalone.
+COPY cli/go.mod ./cli/
+COPY cli/go.su[m] ./cli/
+RUN --mount=type=cache,target=/go/pkg/mod cd cli && go mod download
+COPY cli ./cli
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    cd cli && go build -ldflags="-s -w" -o /out/cloudsim ./cmd/cloudsim && /out/cloudsim --version
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/cloudsim /usr/local/bin/cloudsim
+# Configuration lives in $HOME/.cloudsim (mount it, or use CLOUDSIM_* environment variables).
+ENV HOME=/home/nonroot CLOUDSIM_ENDPOINT=http://backend:8080
+USER 65532:65532
+ENTRYPOINT ["cloudsim"]
+CMD ["help"]

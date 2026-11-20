@@ -1,0 +1,12 @@
+.git
+**/target
+engine/target
+frontend/node_modules
+frontend/.next
+frontend/test-results
+frontend/playwright-report
+**/*.db
+**/*.db-wal
+**/*.db-shm
+data
+.env

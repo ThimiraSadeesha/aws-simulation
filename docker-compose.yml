@@ -1,0 +1,89 @@
+# CloudSim — local AWS-style cloud training simulator.
+# Start everything:  docker compose up --build      Console: http://localhost:${CONSOLE_PORT:-3000}
+name: cloudsim
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+
+services:
+  engine:
+    build: { context: ., dockerfile: infrastructure/docker/Dockerfile.engine }
+    image: cloudsim/engine:local
+    environment:
+      ENGINE_TOKEN: ${ENGINE_TOKEN:?set ENGINE_TOKEN in .env (see .env.example)}
+      ENGINE_TIME_SCALE: ${ENGINE_TIME_SCALE:-1.0}
+      ENGINE_SEED: ${ENGINE_SEED:-42}
+      RUST_LOG: ${ENGINE_LOG_LEVEL:-info}
+    # No published ports: the engine is reachable only on the internal network.
+    networks: [internal]
+    restart: unless-stopped
+    stop_grace_period: 10s
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy: { resources: { limits: { cpus: "2", memory: 512M } } }
+    logging: *logging
+
+  backend:
+    build: { context: ., dockerfile: infrastructure/docker/Dockerfile.backend }
+    image: cloudsim/backend:local
+    environment:
+      ENGINE_URL: http://engine:7070
+      ENGINE_TOKEN: ${ENGINE_TOKEN}
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-true}
+      SECURE_COOKIES: ${SECURE_COOKIES:-false}
+      SESSION_TTL: ${SESSION_TTL:-24h}
+      RATE_LIMIT_RPS: ${RATE_LIMIT_RPS:-50}
+      MAX_OBJECT_SIZE: ${MAX_OBJECT_SIZE:-104857600}
+      SECRETS_KEY: ${SECRETS_KEY:-}
+      LOG_LEVEL: ${BACKEND_LOG_LEVEL:-info}
+    volumes:
+      - cloudsim-data:/data          # SQLite database, object storage, backups
+    depends_on:
+      engine: { condition: service_healthy }
+    networks: [internal]
+    # Published on loopback only so the CLI can reach it; set BACKEND_BIND=0.0.0.0 deliberately to expose it.
+    ports: ["${BACKEND_BIND:-127.0.0.1}:${BACKEND_PORT:-8080}:8080"]
+    restart: unless-stopped
+    stop_grace_period: 20s
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy: { resources: { limits: { cpus: "2", memory: 1G } } }
+    logging: *logging
+
+  frontend:
+    build: { context: ., dockerfile: infrastructure/docker/Dockerfile.frontend }
+    image: cloudsim/frontend:local
+    environment:
+      BACKEND_INTERNAL_URL: http://backend:8080
+    depends_on:
+      backend: { condition: service_healthy }
+    networks: [internal]
+    ports: ["${CONSOLE_BIND:-127.0.0.1}:${CONSOLE_PORT:-3000}:3000"]
+    restart: unless-stopped
+    stop_grace_period: 10s
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy: { resources: { limits: { cpus: "1", memory: 512M } } }
+    logging: *logging
+
+  # Optional: the cloudsim CLI in a container.  docker compose run --rm cli ec2 describe-instances
+  cli:
+    build: { context: ., dockerfile: infrastructure/docker/Dockerfile.cli }
+    image: cloudsim/cli:local
+    profiles: [tools]
+    environment:
+      CLOUDSIM_ENDPOINT: http://backend:8080
+      CLOUDSIM_ACCESS_KEY_ID: ${CLOUDSIM_ACCESS_KEY_ID:-}
+      CLOUDSIM_SECRET_ACCESS_KEY: ${CLOUDSIM_SECRET_ACCESS_KEY:-}
+    networks: [internal]
+
+volumes:
+  cloudsim-data:
+
+networks:
+  internal:
+    driver: bridge
